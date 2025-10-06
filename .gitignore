@@ -1,0 +1,84 @@
+# =========================================================
+# 🧠 Root
+# =========================================================
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.sample
+*.log
+logs/
+*.pid
+*.seed
+*.pem
+*.key
+*.tmp
+*.bak
+*.old
+*.orig
+*.rej
+*.lock
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================================================
+# 📦 TypeScript project (/ts)
+# =========================================================
+ts/node_modules/
+ts/dist/
+ts/build/
+ts/out/
+ts/lib/
+ts/.cache/
+ts/*.tsbuildinfo
+
+# TypeScript log files
+ts/npm-debug.log*
+ts/yarn-debug.log*
+ts/yarn-error.log*
+
+# =========================================================
+# 🦀 Rust project (/rust)
+# =========================================================
+rust/target/
+rust/.cargo/
+rust/**/Cargo.lock
+# Uncomment to keep Cargo.lock committed:
+# !rust/Cargo.lock
+
+# Rust profiling / coverage files
+rust/*.profraw
+rust/*.profdata
+rust/*.gcda
+rust/*.gcno
+rust/*.gcov
+
+# =========================================================
+# 🐳 Docker
+# =========================================================
+.docker/
+docker-compose.override.yml
+*.tar
+
+# =========================================================
+# 🔒 Security
+# =========================================================
+id_rsa*
+id_ed25519*
+*.json.key
+secrets/
+keys/
+certs/
+
+# =========================================================
+# 🧪 Misc local
+# =========================================================
+__pycache__/
+temp/
+uploads/
+.cache/
+data/

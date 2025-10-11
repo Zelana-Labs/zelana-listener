@@ -9,7 +9,7 @@ fn main() -> io::Result<()> {
     let duration_ms: u64 = env::var("DURATION_MS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(30000);
+        .unwrap_or(10000);
 
     println!("Starting listeners sequentially…");
 
@@ -29,7 +29,17 @@ fn main() -> io::Result<()> {
 fn run_listener(label: &str, dir: &str, cmd: &[&str], duration_ms: u64) -> io::Result<()> {
     println!("\n=== {label} ===");
     println!("→ entering: {dir}");
-    std::env::set_current_dir(dir)?;
+  // ✅ Use ? to extract the PathBuf from Result
+    let mut current = std::env::current_dir()?;
+    println!("Current dir before change: {:?}", current);
+
+    // Go one directory up
+    current.pop();
+
+    // Then push the target directory (from argument)
+    current.push(dir);
+
+    let _ = std::env::set_current_dir(&current);
 
     println!("→ current path: {:?}", std::env::current_dir()?);
     println!("→ starting: {:?}", cmd.join(" "));
@@ -49,20 +59,18 @@ fn run_listener(label: &str, dir: &str, cmd: &[&str], duration_ms: u64) -> io::R
     Ok(())
 }
 
-fn spawn_command(cmd: &[&str]) -> io::Result<Child> {
-    let mut command = Command::new(cmd[0]);
-    if cmd.len() > 1 {
-        command.args(&cmd[1..]);
-    }
-    command.spawn()
+fn spawn_command(cmd: &[&str]) -> std::io::Result<std::process::Child> {
+    let mut c = std::process::Command::new("cmd");
+    c.args(&["/C"]).args(cmd); // use Windows shell
+    c.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
+    c.spawn()
 }
 
-fn easy_kill(child: &mut Child) {
-    if let Some(id) = child.id() {
-        let _ = Command::new("kill")
-            .arg("-TERM")
-            .arg(id.to_string())
-            .status();
-    }
+
+fn easy_kill(child: &mut std::process::Child) {
+    let _ = child.kill(); // sends SIGKILL on Unix, TerminateProcess on Windows
     let _ = child.wait();
 }
+

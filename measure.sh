@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Duration in milliseconds each listener runs before being stopped
-# 15 secs
-DURATION_MS="${DURATION_MS:-10000}"
+# 30 secs
+DURATION_MS="${DURATION_MS:-30000}"
 
 # Helper: millisecond sleep
 sleep_ms() {
@@ -52,8 +52,8 @@ run_listener "ts_helius_wss" "ts" "npm run helius:wss"
 run_listener "ts_native"     "ts" "npm run native"
 
 # --- Rust ---
-#run_listener "rust_helius" "rust" "./target/debug/helius"
-#run_listener "rust_native" "rust" "./target/debug/native"
+run_listener "rust_helius" "rust" "cargo run --bin helius"
+run_listener "rust_native" "rust" "cargo run --bin native"
 
 echo ""
 echo "All done ✅"

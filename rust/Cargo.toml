@@ -23,3 +23,7 @@ path = "src/helius/main.rs"
 [[bin]]
 name = "native"
 path = "src/native/main.rs"
+
+[[bin]]
+name = "bench"
+path = "src/tests/bench.rs"

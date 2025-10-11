@@ -2,11 +2,14 @@
   "name": "ts",
   "version": "1.0.0",
   "main": "index.js",
-"scripts": {
-  "helius": "nodemon --exec ts-node src/helius/index.ts",
-  "native": "nodemon --exec ts-node src/native/index.ts",
-  "build": "tsc"
-},
+  "scripts": {
+    "helius:http": "nodemon --exec ts-node src/helius/http/index.ts",
+    "helius:wss": "nodemon --exec ts-node src/helius/wss/index.ts",
+    "native": "nodemon --exec ts-node src/native/index.ts",
+    "test": "npx ts-node src/test.ts",
+    "build": "tsc",
+    "send": "npx ts-node src/send-tx.ts"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -15,6 +18,7 @@
     "@solana/web3.js": "^1.98.4",
     "axios": "^1.12.2",
     "body-parser": "^2.2.0",
+    "dotenv": "^17.2.3",
     "express": "^5.1.0"
   },
   "devDependencies": {

@@ -57,7 +57,7 @@ connection.onAccountChange(TARGET, async (accInfo, ctx) => {
   try {
     const lamports = accInfo.lamports;
     const sig = accInfo.data
-    console.log("SENT", lamports)
+    console.log("RECEIVED", lamports)
     lastLamports = lamports;
   } catch (e) {
     console.error('onAccountChange handler error:', e);

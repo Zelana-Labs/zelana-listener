@@ -16,7 +16,10 @@ console.log(`🚀 Helius HTTP polling listener starting...`);
 console.log(`📡 Monitoring address: ${TARGET}`);
 console.log(`⏱️  Poll interval: ${POLL_INTERVAL_MS}ms`);
 
-let lastSeenTimestamp = 0;
+const startTime = Math.floor(Date.now() / 1000); // Current time in seconds
+const seenSignatures = new Set<string>();
+
+console.log(`⏰ Start time: ${startTime} (${new Date(startTime * 1000).toISOString()})`);
 
 async function pollTransactions() {
   try {
@@ -30,14 +33,15 @@ async function pollTransactions() {
 
     const transactions = await response.json();
 
-    // Process only transactions newer than last seen timestamp
+    // Check transactions that happened after we started
     for (const tx of transactions) {
       const signature = tx.signature;
       const timestamp = tx.timestamp;
       
-      if (timestamp && timestamp > lastSeenTimestamp) {
+      // Only process if: transaction is after start time AND we haven't seen it
+      if (timestamp >= startTime && signature && !seenSignatures.has(signature)) {
         console.log(`RECEIVED ${signature}`);
-        lastSeenTimestamp = timestamp;
+        seenSignatures.add(signature);
       }
     }
   } catch (error) {
@@ -47,6 +51,5 @@ async function pollTransactions() {
 
 console.log(`✅ Listener ready, starting to poll...\n`);
 
-// Poll immediately, then at intervals
-pollTransactions();
+// Start polling for new transactions
 setInterval(pollTransactions, POLL_INTERVAL_MS);

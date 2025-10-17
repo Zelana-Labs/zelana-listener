@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+
 use crossbeam_channel as xch;
 
 #[cfg(unix)]
@@ -15,8 +16,8 @@ fn main() -> io::Result<()> {
     let duration_ms: u64 = env::var("DURATION_MS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(15_000);
-    
+        .unwrap_or(30_000);
+
     let pre_tx_delay_ms: u64 = env::var("PRE_TX_DELAY_MS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -28,11 +29,22 @@ fn main() -> io::Result<()> {
     println!("\n⚙️  Configuration:");
     println!("   • Timeout: {} ms", duration_ms);
     println!("   • Pre-TX delay: {} ms", pre_tx_delay_ms);
-    println!("   • Detection keyword: 'DETECTED' in stdout");
+    println!("   • Detection keyword: 'RECEIVED' in stdout");
     println!();
 
-    let project_root: PathBuf = env::current_dir()?.parent().unwrap().to_path_buf();
-    let addr = "CSg4fcG4WqaVgTE33gzquXYGKAuZpikNWKQ4P4y71kke";
+    // Assumes this binary sits inside a workspace subdir; adjust if needed.
+    // If not in a workspace, you can set PROJECT_ROOT manually via env.
+    let project_root: PathBuf = if let Ok(root) = env::var("PROJECT_ROOT") {
+        PathBuf::from(root)
+    } else {
+        // current_dir() is typically <repo>/bench (or similar)
+        // parent() hops back to <repo>
+        env::current_dir()?.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
+    };
+
+    // Address your listeners should react to (your programs should use/print "RECEIVED" on detection)
+    let addr = env::var("LISTEN_ADDRESS")
+        .unwrap_or_else(|_| "CSg4fcG4WqaVgTE33gzquXYGKAuZpikNWKQ4P4y71kke".to_string());
 
     let mut results = Vec::new();
 
@@ -43,27 +55,27 @@ fn main() -> io::Result<()> {
         "ts",
         &["npm", "run", "helius:http"],
         duration_ms,
-        addr,
+        &addr,
         pre_tx_delay_ms,
     )?);
-    
+
     results.push(run_listener(
         &project_root,
         "TypeScript (Helius WSS)",
         "ts",
         &["npm", "run", "helius:wss"],
         duration_ms,
-        addr,
+        &addr,
         pre_tx_delay_ms,
     )?);
-    
+
     results.push(run_listener(
         &project_root,
         "TypeScript (Native)",
         "ts",
         &["npm", "run", "native"],
         duration_ms,
-        addr,
+        &addr,
         pre_tx_delay_ms,
     )?);
 
@@ -74,17 +86,17 @@ fn main() -> io::Result<()> {
         "rust",
         &["target/debug/helius"],
         duration_ms,
-        addr,
+        &addr,
         pre_tx_delay_ms,
     )?);
-    
+
     results.push(run_listener(
         &project_root,
         "Rust (Native)",
         "rust",
         &["target/debug/native"],
         duration_ms,
-        addr,
+        &addr,
         pre_tx_delay_ms,
     )?);
 
@@ -92,14 +104,14 @@ fn main() -> io::Result<()> {
     println!("\n╔════════════════════════════════════════════════════════╗");
     println!("║                    Summary Results                     ║");
     println!("╚════════════════════════════════════════════════════════╝\n");
-    
+
     for (name, elapsed) in results {
         match elapsed {
             Some(ms) => println!("✓ {:<30} {:>12.6} ms", name, ms),
             None => println!("✗ {:<30} TIMEOUT", name),
         }
     }
-    
+
     println!("\n✅ Benchmark complete!\n");
     Ok(())
 }
@@ -120,72 +132,83 @@ fn run_listener(
     let saved_dir = env::current_dir()?;
     let target = project_root.join(dir);
     env::set_current_dir(&target)?;
-    
+
     println!("  📁 Working directory: {}", env::current_dir()?.display());
     println!("  🚀 Command: {}", cmd.join(" "));
     println!("  ⏳ Starting listener...");
 
     let mut child = spawn_command(cmd)?;
-    
+
     // Capture stdout to detect when transaction is found
     let stdout = child.stdout.take().expect("Failed to capture stdout");
     let reader = BufReader::new(stdout);
 
-    let (detected_tx, detected_rx) = xch::unbounded::<Instant>();
-    let pr_clone = project_root.to_path_buf();
-    let addr = listen_address.to_string();
+    // Channels for async timestamps (capacity=1 to keep only the first event)
+    let (detected_tx, detected_rx) = xch::bounded::<Instant>(1);
+    let (sent_tx, sent_rx) = xch::bounded::<Instant>(1);
 
     // Thread 1: Watch stdout for detection
     std::thread::spawn(move || {
         for line in reader.lines() {
             if let Ok(line) = line {
-                println!("    {}", line); // Echo the line
+                println!("    {}", line); // Echo the line from child
                 if line.contains("RECEIVED") {
+                    // Record the instant we saw the detection
                     let _ = detected_tx.send(Instant::now());
                     break;
                 }
+            } else {
+                break; // EOF or error
             }
         }
     });
 
     // Thread 2: Send transaction after delay
-    let tx_start_time = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let tx_start_clone = tx_start_time.clone();
+    let pr_clone = project_root.to_path_buf();
+    let addr = listen_address.to_string();
     
     std::thread::spawn(move || {
         sleep(Duration::from_millis(pre_tx_delay_ms));
         println!("  💸 Sending transaction...");
-        let start = Instant::now();
-        *tx_start_clone.lock().unwrap() = Some(start);
+        // Start the timer right before invoking the sender (best approximation)
+        let tx_start = Instant::now();
         let _ = send_tx_from_ts(&pr_clone, &addr);
+        let _ = sent_tx.send(tx_start);
     });
 
-    // Wait for detection or timeout
-    let result = match detected_rx.recv_timeout(Duration::from_millis(duration_ms)) {
-        Ok(detected_at) => {
-            // Calculate time from TX send to detection
-            let tx_start = tx_start_time.lock().unwrap();
-            if let Some(start) = *tx_start {
-                let elapsed = detected_at.duration_since(start);
-                println!("  ✓ Transaction detected in {:.6} ms", elapsed.as_secs_f64() * 1000.0);
-                Some(elapsed.as_secs_f64() * 1000.0)
-            } else {
-                println!("  ⚠️  Detected before TX was sent (unexpected)");
-                None
-            }
-        }
-        Err(_) => {
-            println!("  ✗ Timeout after {} ms", duration_ms);
-            None
-        }
-    };
+    // Wait until we have BOTH timestamps (or timeout)
+    let deadline = Instant::now() + Duration::from_millis(duration_ms);
+    let mut sent_at: Option<Instant> = None;
+    let mut detected_at: Option<Instant> = None;
 
+    while Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+
+        xch::select! {
+            recv(sent_rx) -> v => if let Ok(t) = v { sent_at = Some(t); },
+            recv(detected_rx) -> v => if let Ok(t) = v { detected_at = Some(t); },
+            default(Duration::from_millis(10)) => { /* poll */ }
+        }
+
+        if let (Some(s), Some(d)) = (sent_at, detected_at) {
+            let elapsed = d.saturating_duration_since(s);
+            println!("  ✓ Transaction detected in {:.6} ms", elapsed.as_secs_f64() * 1000.0);
+            println!("  🛑 Stopping listener...");
+            easy_kill(&mut child);
+            env::set_current_dir(saved_dir)?;
+            return Ok((label.to_string(), Some(elapsed.as_secs_f64() * 1000.0)));
+        }
+    }
+
+    // Timeout path
+    println!("  ✗ Timeout after {} ms", duration_ms);
     println!("  🛑 Stopping listener...");
     easy_kill(&mut child);
-    
     env::set_current_dir(saved_dir)?;
-
-    Ok((label.to_string(), result))
+    Ok((label.to_string(), None))
 }
 
 fn send_tx_from_ts(project_root: &Path, _to_addr: &str) -> io::Result<()> {
@@ -206,7 +229,7 @@ fn send_tx_from_ts(project_root: &Path, _to_addr: &str) -> io::Result<()> {
 
 fn spawn_command(cmd: &[&str]) -> io::Result<Child> {
     let (prog, args) = cmd.split_first().expect("empty command");
-    
+
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -218,7 +241,7 @@ fn spawn_command(cmd: &[&str]) -> io::Result<Child> {
             .process_group(0)
             .spawn()
     }
-    
+
     #[cfg(not(unix))]
     {
         Command::new(prog)
@@ -233,13 +256,14 @@ fn spawn_command(cmd: &[&str]) -> io::Result<Child> {
 fn easy_kill(child: &mut Child) {
     #[cfg(unix)]
     {
+        // Kill the whole process group we spawned
         let pid = child.id() as i32;
         let _ = kill(Pid::from_raw(-pid), Signal::SIGTERM);
         std::thread::sleep(std::time::Duration::from_millis(500));
         let _ = kill(Pid::from_raw(-pid), Signal::SIGKILL);
         let _ = child.wait();
     }
-    
+
     #[cfg(not(unix))]
     {
         let _ = child.kill();
